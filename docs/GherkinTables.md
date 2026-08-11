@@ -117,6 +117,8 @@ Things worth knowing:
   two filled ones is kept, as an empty line.
 - **With the trailing `+`, a continuation line is one whose first cell is empty.** A logical row
   therefore needs a filled first cell. Use the separator notation when that does not hold.
+- **Comments and blank lines between rows are ignored**, exactly as in any other Gherkin table, so
+  one can sit inside a multiline row without breaking it.
 - **The two notations cannot be mixed in one table**, and an ambiguous table fails with the line
   number at fault rather than being guessed at.
 - **Line numbers are preserved**, so validation and error messages still point at the right line.

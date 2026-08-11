@@ -196,6 +196,94 @@ describe('multiline table cells', () => {
     });
   });
 
+  describe('comments and blank lines between rows', () => {
+    it('do not break a logical row they sit inside', () => {
+      const rows = rowsOfFirstStep(
+        featureWith(
+          `      | type  | enrollment |
+      | major | LSpS 1     |+
+      # the campus moved
+      |       | LSpS       |
+
+      |       | Bordeaux   |
+      | minor | Terminale  |
+`,
+        ),
+      );
+
+      expect(rows).toStrictEqual([
+        { type: 'major', enrollment: 'LSpS 1\nLSpS\nBordeaux' },
+        { type: 'minor', enrollment: 'Terminale' },
+      ]);
+    });
+
+    it('do not break a table delimited by separator rows', () => {
+      const rows = rowsOfFirstStep(
+        featureWith(
+          `      | type  | enrollment |
+      | major | LSpS 1     |
+      # the campus moved
+      |       | LSpS       |
+      |-------|------------|
+      | minor | Terminale  |
+`,
+        ),
+      );
+
+      expect(rows).toStrictEqual([
+        { type: 'major', enrollment: 'LSpS 1\nLSpS' },
+        { type: 'minor', enrollment: 'Terminale' },
+      ]);
+    });
+
+    it('stay on their own line, so line numbers still hold', () => {
+      const { steps } = parseFeature(
+        featureWith(
+          `      | type  | enrollment |
+      | major | LSpS 1     |+
+      # the campus moved
+      |       | LSpS       |
+`,
+        ),
+      ).scenarios[0];
+
+      expect(steps[1].lineNumber).toBe(9);
+    });
+
+    it('leave a table using neither notation byte-identical', () => {
+      const featureText = featureWith(
+        `      | type  | enrollment |
+      | major | LSpS 1     |
+      # the campus moved
+      | minor | Terminale  |
+`,
+      );
+
+      expect(foldMultilineTableCells(featureText)).toBe(featureText);
+    });
+
+    it('come out unchanged when they merely follow a table', () => {
+      const featureText = `Feature: Disciplines
+
+  Scenario: Enrolling
+    Given there are the following available disciplines
+      | type  | enrollment |
+      | major | LSpS 1     |+
+      |       | LSpS       |
+
+    # about what comes next
+    Then enrollment is open
+`;
+
+      expect(foldMultilineTableCells(featureText).split('\n').slice(7)).toStrictEqual([
+        '',
+        '    # about what comes next',
+        '    Then enrollment is open',
+        '',
+      ]);
+    });
+  });
+
   describe('cell contents', () => {
     it('keeps an escaped pipe and an escaped backslash', () => {
       const rows = rowsOfFirstStep(

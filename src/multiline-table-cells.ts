@@ -20,6 +20,7 @@
  */
 
 const TABLE_LINE = /^\s*\|/;
+const IGNORED_BETWEEN_ROWS = /^\s*(#|$)/;
 const SEPARATOR_CELL = /^-+$/;
 const DOC_STRING_DELIMITER = /^\s*("""|```)/;
 const CONTINUATION_MARKER = '+';
@@ -202,7 +203,9 @@ const groupRowsByContinuationMarker = (bodyLines: TableRowLine[]) => {
 };
 
 const foldTableBlock = (blockLines: string[], firstLineNumber: number) => {
-  const rowLines = blockLines.map((line, index) => readTableRowLine(line, firstLineNumber + index));
+  const rowLines = blockLines.flatMap((line, index) =>
+    TABLE_LINE.test(line) ? [readTableRowLine(line, firstLineNumber + index)] : [],
+  );
 
   const usesSeparators = rowLines.some(rowLine => rowLine.isSeparator);
   const usesContinuationMarkers = rowLines.some(rowLine => rowLine.isMarkedAsContinued);
@@ -232,8 +235,8 @@ const foldTableBlock = (blockLines: string[], firstLineNumber: number) => {
   // Each logical row is emitted on its own first physical line, and every line it consumed — the
   // continuation lines and the separator rows alike — is blanked rather than removed, so the
   // folded text has the exact line count of the original and every line number still points at
-  // the text it used to.
-  const foldedBlock = blockLines.map((line, index) => (index === 0 ? line : ''));
+  // the text it used to. Comments and blank lines are left where their author put them.
+  const foldedBlock = blockLines.map((line, index) => (index === 0 || !TABLE_LINE.test(line) ? line : ''));
 
   logicalRows.forEach(logicalRow => {
     foldedBlock[logicalRow[0].lineNumber - firstLineNumber] = foldLogicalRow(logicalRow, headerLine.cells.length);
@@ -260,9 +263,14 @@ export const foldMultilineTableCells = (featureText: string) => {
       foldedLines.push(line);
       index += 1;
     } else {
+      // Gherkin ignores comments and blank lines between the rows of a table, so a table stays one
+      // block across them and a logical row can be commented mid-way like any other.
       let blockEnd = index;
 
-      while (blockEnd < lines.length && TABLE_LINE.test(lines[blockEnd])) {
+      while (
+        blockEnd < lines.length &&
+        (TABLE_LINE.test(lines[blockEnd]) || IGNORED_BETWEEN_ROWS.test(lines[blockEnd]))
+      ) {
         blockEnd += 1;
       }
 
