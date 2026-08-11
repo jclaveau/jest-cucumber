@@ -26,11 +26,11 @@
 
 const TABLE_LINE = /^\s*\|/;
 const IGNORED_BETWEEN_ROWS = /^\s*(#|$)/;
-// Matched against the raw text between two pipes, padding included, so a drawn rule ("|-----|")
-// is a separator while a "-" used as a placeholder value ("| - |") stays data. Three dashes
-// minimum, for the same reason. Getting this wrong is expensive: a row mistaken for a separator is
-// dropped AND the rows on either side of it are welded into one.
-const SEPARATOR_CELL = /^-{3,}$/;
+// Matched against the raw text between two pipes, padding included: a rule is drawn tight against
+// the pipes ("|-----|", "|-|"), while a "-" used as a placeholder value is padded like every other
+// cell ("| - |") and stays data. Getting this wrong is expensive — a row mistaken for a separator
+// is dropped AND the rows on either side of it are welded into one.
+const SEPARATOR_CELL = /^-+$/;
 const DOC_STRING_DELIMITER = /^\s*("""|```)/;
 const ROW_START_MARKER = '+';
 

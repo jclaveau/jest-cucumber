@@ -74,6 +74,25 @@ describe('multiline table cells', () => {
       ]);
     });
 
+    it('takes any number of dashes, as long as they touch the pipes', () => {
+      const rows = rowsOfFirstStep(
+        featureWith(
+          `      | type  | enrollment |
+      |-|-|
+      | major | LSpS 1     |
+      |       | LSpS       |
+      |------|------------|
+      | minor | Terminale  |
+`,
+        ),
+      );
+
+      expect(rows).toStrictEqual([
+        { type: 'major', enrollment: 'LSpS 1\nLSpS' },
+        { type: 'minor', enrollment: 'Terminale' },
+      ]);
+    });
+
     it('tolerates a trailing separator row', () => {
       const rows = rowsOfFirstStep(
         featureWith(
