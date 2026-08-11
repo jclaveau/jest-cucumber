@@ -108,8 +108,8 @@ Both give the step definition the same two rows:
 Things worth knowing:
 
 - **A table using neither notation is untouched**, so nothing changes for tables you already have.
-  The one exception is a table that already contained a row of nothing but dashes, which now reads
-  as a separator instead of as data.
+  A separator row means a rule drawn tight against the pipes (`|-----|-----|`, three dashes
+  minimum), so a `-` used as a placeholder value (`| - | - |`) stays data.
 - **A cell is its fragments joined by newlines**, with the column's own padding stripped and any
   indentation beyond it kept — which is what lets a pretty-printed JSON cell survive as valid JSON.
 - **Blank fragments at either end of a cell are dropped**, so a cell that only carries a value on

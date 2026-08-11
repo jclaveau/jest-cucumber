@@ -26,9 +26,11 @@
 
 const TABLE_LINE = /^\s*\|/;
 const IGNORED_BETWEEN_ROWS = /^\s*(#|$)/;
-// An all-dashes row is always a delimiter, with no way to opt out and read it back as data: it
-// would take a table whose every column holds nothing but dashes, which nobody writes.
-const SEPARATOR_CELL = /^-+$/;
+// Matched against the raw text between two pipes, padding included, so a drawn rule ("|-----|")
+// is a separator while a "-" used as a placeholder value ("| - |") stays data. Three dashes
+// minimum, for the same reason. Getting this wrong is expensive: a row mistaken for a separator is
+// dropped AND the rows on either side of it are welded into one.
+const SEPARATOR_CELL = /^-{3,}$/;
 const DOC_STRING_DELIMITER = /^\s*("""|```)/;
 const ROW_START_MARKER = '+';
 
@@ -38,6 +40,7 @@ type TableRowLine = {
   cells: string[];
   isSeparator: boolean;
   isMarkedAsRowStart: boolean;
+  trailingText: string;
 };
 
 const splitOnUnescapedPipes = (line: string) => {
@@ -66,21 +69,16 @@ const splitOnUnescapedPipes = (line: string) => {
 const readTableRowLine = (line: string, lineNumber: number): TableRowLine => {
   const parts = splitOnUnescapedPipes(line);
   const indentation = parts[0];
-  const afterLastPipe = parts[parts.length - 1].trim();
+  const trailingText = parts[parts.length - 1].trim();
   const cells = parts.slice(1, -1);
-
-  if (afterLastPipe !== '' && afterLastPipe !== ROW_START_MARKER && afterLastPipe.startsWith(ROW_START_MARKER)) {
-    throw new Error(
-      `Line ${lineNumber}: expected "${ROW_START_MARKER}" or nothing after a table row's last "|", got "${afterLastPipe}"`,
-    );
-  }
 
   return {
     lineNumber,
     indentation,
     cells,
-    isSeparator: cells.length > 0 && cells.every(cell => SEPARATOR_CELL.test(cell.trim())),
-    isMarkedAsRowStart: afterLastPipe === ROW_START_MARKER,
+    isSeparator: cells.length > 0 && cells.every(cell => SEPARATOR_CELL.test(cell)),
+    isMarkedAsRowStart: trailingText === ROW_START_MARKER,
+    trailingText,
   };
 };
 
@@ -93,31 +91,37 @@ const readTableRowLine = (line: string, lineNumber: number): TableRowLine => {
  * The newline is the whole of the contract: what a multiline value means is the step definition's
  * business, so wrapping a scalar over three lines yields the three lines, not the original scalar.
  */
-const foldCellFragments = (fragments: string[], lineNumber: number) => {
-  const withoutTrailingSpaces = fragments.map(fragment => fragment.replace(/\s+$/, ''));
+const foldCellFragments = (fragments: { text: string; lineNumber: number }[]) => {
+  const withoutTrailingSpaces = fragments.map(fragment => ({
+    ...fragment,
+    text: fragment.text.replace(/\s+$/, ''),
+  }));
 
-  const firstFilled = withoutTrailingSpaces.findIndex(fragment => fragment !== '');
+  const firstFilled = withoutTrailingSpaces.findIndex(fragment => fragment.text !== '');
 
   if (firstFilled === -1) {
     return '';
   }
 
-  const lastFilled = withoutTrailingSpaces.reduce((last, fragment, index) => (fragment === '' ? last : index), 0);
+  const lastFilled = withoutTrailingSpaces.reduce((last, fragment, index) => (fragment.text === '' ? last : index), 0);
   const filled = withoutTrailingSpaces.slice(firstFilled, lastFilled + 1);
 
-  const danglingEscape = filled.find(fragment => /(?:^|[^\\])(?:\\\\)*\\$/.test(fragment));
+  // Only a fragment with another one appended after it grows an escape sequence at the seam, so a
+  // trailing backslash is ambiguous there and nowhere else. The last fragment is emitted as it was
+  // written, which keeps a Windows path or a regex in the final line of a cell working.
+  const danglingEscape = filled.slice(0, -1).find(fragment => /(?:^|[^\\])(?:\\\\)*\\$/.test(fragment.text));
 
   if (danglingEscape !== undefined) {
     throw new Error(
-      `Line ${lineNumber}: a folded table cell fragment cannot end on a "\\" ("${danglingEscape.trim()}")`,
+      `Line ${danglingEscape.lineNumber}: a folded table cell fragment cannot end on a "\\" ("${danglingEscape.text.trim()}")`,
     );
   }
 
   const sharedIndentation = filled
-    .filter(fragment => fragment !== '')
-    .reduce((shared, fragment) => Math.min(shared, fragment.length - fragment.trimStart().length), Infinity);
+    .filter(fragment => fragment.text !== '')
+    .reduce((shared, { text }) => Math.min(shared, text.length - text.trimStart().length), Infinity);
 
-  return filled.map(fragment => fragment.slice(sharedIndentation)).join('\\n');
+  return filled.map(fragment => fragment.text.slice(sharedIndentation)).join('\\n');
 };
 
 const foldLogicalRow = (rowLines: TableRowLine[], columnCount: number) => {
@@ -132,10 +136,7 @@ const foldLogicalRow = (rowLines: TableRowLine[], columnCount: number) => {
   }
 
   const values = Array.from({ length: columnCount }, (_unused, column) =>
-    foldCellFragments(
-      rowLines.map(rowLine => rowLine.cells[column]),
-      firstLine.lineNumber,
-    ),
+    foldCellFragments(rowLines.map(rowLine => ({ text: rowLine.cells[column], lineNumber: rowLine.lineNumber }))),
   );
 
   return `${firstLine.indentation}| ${values.join(' | ')} |`;
@@ -196,8 +197,26 @@ const foldTableBlock = (blockLines: string[], firstLineNumber: number) => {
   const usesRowStartMarkers = rowLines.some(rowLine => rowLine.isMarkedAsRowStart);
 
   if (usesSeparators && usesRowStartMarkers) {
+    const conflicting = rowLines.filter(rowLine => rowLine.isSeparator || rowLine.isMarkedAsRowStart);
+
     throw new Error(
-      `Line ${firstLineNumber}: a table cannot mix separator rows and "|${ROW_START_MARKER}" row markers`,
+      `Line ${conflicting[1].lineNumber}: a table cannot mix separator rows and "|${ROW_START_MARKER}" row markers`,
+    );
+  }
+
+  // Stock Gherkin discards whatever follows a row's last pipe, which is exactly why a mistyped
+  // marker is dangerous here: an unmarked row is a continuation, so "|;" would silently weld a row
+  // onto the one above it. Inside a table that uses markers, nothing but the marker may follow.
+  const strayTrailingText = rowLines.find(
+    rowLine =>
+      rowLine.trailingText !== '' &&
+      rowLine.trailingText !== ROW_START_MARKER &&
+      (usesRowStartMarkers || rowLine.trailingText.startsWith(ROW_START_MARKER)),
+  );
+
+  if (strayTrailingText) {
+    throw new Error(
+      `Line ${strayTrailingText.lineNumber}: expected "${ROW_START_MARKER}" or nothing after a table row's last "|", got "${strayTrailingText.trailingText}"`,
     );
   }
 
@@ -230,21 +249,53 @@ const foldTableBlock = (blockLines: string[], firstLineNumber: number) => {
   return foldedBlock;
 };
 
+/*
+ * Gherkin lets a Feature, Rule or Scenario carry free-form description text, which may perfectly
+ * well contain a line of backticks. Only delimiters that come in a matching pair are treated as a
+ * doc string, so a stray fence in prose cannot switch folding off for the rest of the file.
+ */
+const docStringLineNumbers = (lines: string[]) => {
+  const insideDocString = new Set<number>();
+  let openedAt: number | null = null;
+  let openDelimiter = '';
+
+  lines.forEach((line, index) => {
+    const delimiter = DOC_STRING_DELIMITER.exec(line)?.[1];
+
+    if (delimiter === undefined) {
+      return;
+    }
+
+    if (openedAt === null) {
+      openedAt = index;
+      openDelimiter = delimiter;
+      return;
+    }
+
+    if (delimiter !== openDelimiter) {
+      return;
+    }
+
+    for (let inside = openedAt; inside <= index; inside += 1) {
+      insideDocString.add(inside);
+    }
+
+    openedAt = null;
+  });
+
+  return insideDocString;
+};
+
 export const foldMultilineTableCells = (featureText: string) => {
   const lines = featureText.split('\n');
+  const insideDocString = docStringLineNumbers(lines);
   const foldedLines: string[] = [];
-  let docStringDelimiter: string | null = null;
   let index = 0;
 
   while (index < lines.length) {
     const line = lines[index];
-    const docStringMatch = DOC_STRING_DELIMITER.exec(line);
 
-    if (docStringMatch) {
-      docStringDelimiter = docStringDelimiter === docStringMatch[1] ? null : (docStringDelimiter ?? docStringMatch[1]);
-    }
-
-    if (docStringDelimiter !== null || !TABLE_LINE.test(line)) {
+    if (insideDocString.has(index) || !TABLE_LINE.test(line)) {
       foldedLines.push(line);
       index += 1;
     } else {

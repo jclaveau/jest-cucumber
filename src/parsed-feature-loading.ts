@@ -359,6 +359,10 @@ export const loadFeature = (featureFilePath: string, options?: Options) => {
       throw new Error(`Feature file not found (${absoluteFeatureFilePath})`);
     }
 
+    // Everything the parser and the multiline-cell folding report is addressed by line number, and
+    // a line number is worthless across a suite of feature files without the file it belongs to.
+    err.message = `${err.message} (${absoluteFeatureFilePath})`;
+
     throw err;
   }
 };

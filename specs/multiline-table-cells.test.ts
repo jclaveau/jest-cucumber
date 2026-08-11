@@ -391,6 +391,72 @@ Fonctionnalité: Disciplines
     });
   });
 
+  describe('leaves alone what only looks like the notations', () => {
+    it('treats a "-" placeholder row as data, not as a separator', () => {
+      const featureText = featureWith(
+        `      | type  | enrollment |
+      | major | LSpS 1     |
+      | -     | -          |
+      | minor | Terminale  |
+`,
+      );
+
+      // Mistaking this row for a separator would drop it AND weld its neighbours into one row.
+      expect(foldMultilineTableCells(featureText)).toBe(featureText);
+      expect(rowsOfFirstStep(featureText)).toStrictEqual([
+        { type: 'major', enrollment: 'LSpS 1' },
+        { type: '-', enrollment: '-' },
+        { type: 'minor', enrollment: 'Terminale' },
+      ]);
+    });
+
+    it('treats a "-" cell in a single-column table as data', () => {
+      expect(
+        rowsOfFirstStep(
+          featureWith(
+            `      | enrollment |
+      | LSpS 1     |
+      | -          |
+      | Terminale  |
+`,
+          ),
+        ),
+      ).toStrictEqual([{ enrollment: 'LSpS 1' }, { enrollment: '-' }, { enrollment: 'Terminale' }]);
+    });
+
+    it('keeps folding after an unpaired fence in a description', () => {
+      // A Feature description is free-form text and may hold a line of backticks. Treating it as a
+      // doc string that never closes used to switch folding off for the rest of the file.
+      const outline = parseFeature(`Feature: Disciplines
+  \`\`\`
+  not a doc string, just prose
+
+  Scenario: Enrolling
+    Given there are the following available disciplines
+      | type  | segments |
+      | major | [        |+
+      |       | ]        |
+`);
+
+      expect(outline.scenarios[0].steps[0].stepArgument).toStrictEqual([{ type: 'major', segments: '[\n]' }]);
+    });
+
+    it('keeps a trailing backslash in the last fragment of a cell', () => {
+      // Only a fragment with another appended after it grows an escape at the seam, so a Windows
+      // path or a regex ending a cell is none of folding's business.
+      expect(
+        rowsOfFirstStep(
+          featureWith(
+            `      | path      | segments |
+      | C:\\dir\\   | [        |+
+      |           | ]        |
+`,
+          ),
+        ),
+      ).toStrictEqual([{ path: 'C:\\dir\\', segments: '[\n]' }]);
+    });
+  });
+
   describe('rejects an ambiguous table', () => {
     const foldingError = (steps: string) => {
       try {
@@ -409,7 +475,8 @@ Fonctionnalité: Disciplines
       | major | LSpS 1     |+
       |       | LSpS       |
 `),
-      ).toBe('Line 5: a table cannot mix separator rows and "|+" row markers');
+        // Line 7 is the marker that conflicts with the separator on line 6, not the table's first line.
+      ).toBe('Line 7: a table cannot mix separator rows and "|+" row markers');
     });
 
     it('when the first body row is not marked, so it continues the header', () => {
@@ -456,12 +523,25 @@ Fonctionnalité: Disciplines
     });
 
     it('when a folded fragment ends on a dangling backslash', () => {
+      // Reported against line 7, the fragment's own line, not line 6 where its logical row opens.
       expect(
         foldingError(`      | type  | pattern |
-      | major | a\\     |+
-      |       | b       |
+      | major | a       |+
+      |       | b\\      |
+      |       | c       |
 `),
-      ).toBe('Line 6: a folded table cell fragment cannot end on a "\\" ("a\\")');
+      ).toBe('Line 7: a folded table cell fragment cannot end on a "\\" ("b\\")');
+    });
+
+    it('when a row marker is mistyped, rather than reading the row as a continuation', () => {
+      expect(
+        foldingError(`      | type  | enrollment |
+      | major | LSpS 1     |+
+      |       | LSpS       |
+      | minor | Terminale  |;
+      | other | Bordeaux   |+
+`),
+      ).toBe('Line 8: expected "+" or nothing after a table row\'s last "|", got ";"');
     });
   });
 });
