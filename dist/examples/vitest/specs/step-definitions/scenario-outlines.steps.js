@@ -1,0 +1,27 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+// eslint-disable-next-line import/no-extraneous-dependencies
+var vitest_1 = require("vitest");
+var src_1 = require("../../../../src");
+var online_sales_1 = require("../../src/online-sales");
+var feature = (0, src_1.loadFeature)('./examples/typescript/specs/features/scenario-outlines.feature');
+(0, src_1.defineFeature)(feature, function (test) {
+    var onlineSales;
+    var salesPrice;
+    (0, vitest_1.beforeEach)(function () {
+        onlineSales = new online_sales_1.OnlineSales();
+    });
+    test('Selling an <Item> at $<Amount>', function (_a) {
+        var given = _a.given, when = _a.when, then = _a.then;
+        given(/^I have a\(n\) (.*)$/, function (item) {
+            onlineSales.listItem(item);
+        });
+        when(/^I sell the (.*)$/, function (item) {
+            salesPrice = onlineSales.sellItem(item);
+        });
+        then(/^I should get \$(\d+)$/, function (expectedSalesPrice) {
+            (0, vitest_1.expect)(salesPrice).toBe(parseInt(expectedSalesPrice, 10));
+        });
+    });
+});
+//# sourceMappingURL=scenario-outlines.steps.js.map
