@@ -1,0 +1,61 @@
+name: Release fork dist
+
+# A push runs the workflow copy on the pushed branch, so only main auto-rebuilds
+# its -dist; build any other branch on demand via the workflow_dispatch source_ref.
+
+on:
+  push:
+    branches:
+      - main
+      - 'feat/**'
+      - 'wip/**'
+  workflow_dispatch:
+    inputs:
+      source_ref:
+        description: Branch to build a -dist from
+        default: main
+
+permissions:
+  contents: write
+
+env:
+  HUSKY: 0 # for disable husky on ci
+  SRC_REF: ${{ github.event.inputs.source_ref || github.ref_name }}
+
+jobs:
+  dist:
+    name: Publish ${{ github.event.inputs.source_ref || github.ref_name }}-dist
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout source branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.source_ref || github.ref_name }}
+          fetch-depth: 0
+
+      - name: Setup Node v20.x
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20.x
+
+      - name: Install Package
+        run: npm ci
+
+      - name: Run Build
+        run: npm run build
+
+      - name: Strip build-time config from package.json
+        run: |
+          node -e "const fs=require('fs');const p=require('./package.json');delete p.devDependencies;if(p.scripts){delete p.scripts.prepare;}fs.writeFileSync('package.json',JSON.stringify(p,null,2)+'\n');"
+
+      - name: Publish ${SRC_REF}-dist
+        run: |
+          set -euo pipefail
+          git config user.name  "dist[bot]"
+          git config user.email "dist[bot]@users.noreply.github.com"
+          git add -f dist package.json
+          git commit -m "chore(dist): build ${GITHUB_SHA} of ${SRC_REF} [skip ci]"
+          git push --force \
+            "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${GITHUB_REPOSITORY}.git" \
+            "HEAD:refs/heads/${SRC_REF}-dist"
