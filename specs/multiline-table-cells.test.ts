@@ -460,6 +460,58 @@ Fonctionnalité: Disciplines
       expect(outline.scenarios[0].steps[0].stepArgument).toStrictEqual([{ type: 'major', segments: '[\n]' }]);
     });
 
+    it('tells a prose fence apart from the real doc string that follows it', () => {
+      // A doc string is a step's argument, so it can only open after a step keyword. Pairing
+      // delimiters off instead used to mispair the prose fence with the real opener.
+      const { steps } = parseFeature(`Feature: Disciplines
+  \`\`\`
+  prose in the description, not a doc string
+
+  Scenario: Enrolling
+    Given this payload
+      """
+      | not | a | table |
+      """
+    And there are the following available disciplines
+      | type  | segments |
+      | major | [        |+
+      |       | ]        |
+`).scenarios[0];
+
+      expect(steps[0].stepArgument).toBe('| not | a | table |');
+      expect(steps[1].stepArgument).toStrictEqual([{ type: 'major', segments: '[\n]' }]);
+    });
+
+    it('reads the step keywords of the declared spoken language', () => {
+      const step = parseFeature(`# language: fr
+Fonctionnalité: Disciplines
+  \`\`\`
+  de la prose
+
+  Scénario: Inscription
+    Soit les disciplines suivantes
+      | type  | segments |
+      | major | [        |+
+      |       | ]        |
+`).scenarios[0].steps[0];
+
+      expect(step.stepArgument).toStrictEqual([{ type: 'major', segments: '[\n]' }]);
+    });
+
+    it('leaves an unterminated doc string to the parser rather than mangling it', () => {
+      const featureText = `Feature: Disciplines
+
+  Scenario: Enrolling
+    Given this payload
+      """
+      | type  | segments |
+      | major | [        |+
+`;
+
+      expect(foldMultilineTableCells(featureText)).toBe(featureText);
+      expect(() => parseFeature(featureText)).toThrow('Error parsing feature Gherkin');
+    });
+
     it('keeps a trailing backslash in the last fragment of a cell', () => {
       // Only a fragment with another appended after it grows an escape at the seam, so a Windows
       // path or a regex ending a cell is none of folding's business.

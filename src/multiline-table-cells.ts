@@ -24,6 +24,8 @@
  * A table using neither notation is left exactly as it was found.
  */
 
+import { dialects } from '@cucumber/gherkin';
+
 const TABLE_LINE = /^\s*\|/;
 const IGNORED_BETWEEN_ROWS = /^\s*(#|$)/;
 // Matched against the raw text between two pipes, padding included: a rule is drawn tight against
@@ -32,6 +34,7 @@ const IGNORED_BETWEEN_ROWS = /^\s*(#|$)/;
 // is dropped AND the rows on either side of it are welded into one.
 const SEPARATOR_CELL = /^-+$/;
 const DOC_STRING_DELIMITER = /^\s*("""|```)/;
+const LANGUAGE_HEADER = /^\s*#\s*language\s*:\s*([\w-]+)\s*$/;
 const ROW_START_MARKER = '+';
 
 type TableRowLine = {
@@ -250,38 +253,88 @@ const foldTableBlock = (blockLines: string[], firstLineNumber: number) => {
 };
 
 /*
- * Gherkin lets a Feature, Rule or Scenario carry free-form description text, which may perfectly
- * well contain a line of backticks. Only delimiters that come in a matching pair are treated as a
- * doc string, so a stray fence in prose cannot switch folding off for the rest of the file.
+ * A doc string is a step's argument, so it can only open on a line that follows a step keyword.
+ * That is what tells it apart from the free-form description text a Feature, Rule or Scenario may
+ * carry, which is arbitrary prose and may perfectly well hold a line of backticks. Reading such a
+ * line as a doc string that never closes used to switch folding off for the rest of the file.
  */
-const docStringLineNumbers = (lines: string[]) => {
-  const insideDocString = new Set<number>();
-  let openedAt: number | null = null;
-  let openDelimiter = '';
+const keywordAlternation = (keywords: readonly string[]) =>
+  [...keywords]
+    .sort((left, right) => right.length - left.length)
+    .map(keyword => keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+    .join('|');
 
-  lines.forEach((line, index) => {
+const dialectOf = (lines: string[]) => {
+  const header = lines
+    .slice(
+      0,
+      Math.max(
+        lines.findIndex(line => !IGNORED_BETWEEN_ROWS.test(line)),
+        0,
+      ),
+    )
+    .map(line => LANGUAGE_HEADER.exec(line)?.[1])
+    .find(language => language !== undefined);
+
+  return (header && dialects[header]) || dialects.en;
+};
+
+const docStringLineNumbers = (lines: string[]) => {
+  const dialect = dialectOf(lines);
+
+  const stepLine = new RegExp(
+    `^\\s*(?:${keywordAlternation([
+      ...dialect.given,
+      ...dialect.when,
+      ...dialect.then,
+      ...dialect.and,
+      ...dialect.but,
+    ])})`,
+  );
+
+  const blockLine = new RegExp(
+    `^\\s*(?:${keywordAlternation([
+      ...dialect.feature,
+      ...dialect.rule,
+      ...dialect.background,
+      ...dialect.scenario,
+      ...dialect.scenarioOutline,
+      ...dialect.examples,
+    ])})\\s*:`,
+  );
+
+  const insideDocString = new Set<number>();
+  let insideStep = false;
+  let index = 0;
+
+  while (index < lines.length) {
+    const line = lines[index];
     const delimiter = DOC_STRING_DELIMITER.exec(line)?.[1];
 
-    if (delimiter === undefined) {
-      return;
+    if (blockLine.test(line)) {
+      insideStep = false;
+    } else if (stepLine.test(line)) {
+      insideStep = true;
+    } else if (TABLE_LINE.test(line)) {
+      // A step carries one argument, so a table rules out a doc string for the same step.
+      insideStep = false;
+    } else if (insideStep && delimiter !== undefined) {
+      const opensAt = index;
+      const closesAt = lines.findIndex(
+        (laterLine, laterIndex) => laterIndex > opensAt && DOC_STRING_DELIMITER.exec(laterLine)?.[1] === delimiter,
+      );
+      const lastLine = closesAt === -1 ? lines.length - 1 : closesAt;
+
+      for (let inside = index; inside <= lastLine; inside += 1) {
+        insideDocString.add(inside);
+      }
+
+      insideStep = false;
+      index = lastLine;
     }
 
-    if (openedAt === null) {
-      openedAt = index;
-      openDelimiter = delimiter;
-      return;
-    }
-
-    if (delimiter !== openDelimiter) {
-      return;
-    }
-
-    for (let inside = openedAt; inside <= index; inside += 1) {
-      insideDocString.add(inside);
-    }
-
-    openedAt = null;
-  });
+    index += 1;
+  }
 
   return insideDocString;
 };
