@@ -23,6 +23,12 @@ import { parseFeature } from '../../src';
  *
  * A line that does not match `begin` gets no table scope at all, and therefore renders as plain
  * uncoloured text on github.com. That is the whole of the highlighting question.
+ *
+ * `end` matters too, but differently: it does not decide whether a line is coloured, it decides
+ * where the region stops. A line that matches `begin` but not `end` leaves the region open, so it
+ * spans into the following lines until one of them ends on a pipe. Those lines stay coloured — the
+ * cost is that a table whose last line never matches `end` bleeds its scope into the rest of the
+ * file. `unterminatedTableLines` counts the region-spanning lines, not uncoloured ones.
  */
 const TMBUNDLE_TABLE_BEGIN = /^\s*\|/;
 const TMBUNDLE_TABLE_END = /\|\s*$/;
@@ -36,9 +42,10 @@ const probeFixture = (fileName: string) => {
   const tableLines = featureText.split('\n').filter(isTableLine);
 
   let parseError: string | null = null;
+  let stockRows: Record<string, string>[] = [];
 
   try {
-    parseFeature(featureText);
+    stockRows = parseFeature(featureText).scenarios[0].steps[0].stepArgument as Record<string, string>[];
   } catch (err) {
     parseError = (err as Error).message;
   }
@@ -48,8 +55,11 @@ const probeFixture = (fileName: string) => {
     highlightedTableLines: tableLines.filter(line => TMBUNDLE_TABLE_BEGIN.test(line)).length,
     unterminatedTableLines: tableLines.filter(line => !TMBUNDLE_TABLE_END.test(line)).length,
     parseError,
+    stockRows,
   };
 };
+
+const HEADER_COLUMNS = ['type', 'name', 'enrollment', 'split_by', 'schedule_segments'];
 
 describe('multiline table cell candidate syntaxes', () => {
   it('has one fixture per candidate syntax, plus the stock Gherkin baseline', () => {
@@ -59,6 +69,8 @@ describe('multiline table cell candidate syntaxes', () => {
       'b-plus-continues-row.feature',
       'c-separator-row.feature',
       'd-marker-column.feature',
+      'e-trailing-plus-first-line.feature',
+      'f-trailing-plus-every-line.feature',
     ]);
   });
 
@@ -100,6 +112,10 @@ describe('multiline table cell candidate syntaxes', () => {
     expect(probe.highlightedTableLines).toBe(probe.tableLines);
     expect(probe.unterminatedTableLines).toBe(0);
     expect(probe.parseError).toBeNull();
+
+    // Parsing is not the same as parsing usefully: the separator lines come back as rows of dashes.
+    expect(Object.keys(probe.stockRows[0])).toStrictEqual(HEADER_COLUMNS);
+    expect(probe.stockRows[0].type).toBe('-------');
   });
 
   it('candidate D (leading marker column): fully highlighted, still stock Gherkin', () => {
@@ -109,5 +125,55 @@ describe('multiline table cell candidate syntaxes', () => {
     expect(probe.highlightedTableLines).toBe(probe.tableLines);
     expect(probe.unterminatedTableLines).toBe(0);
     expect(probe.parseError).toBeNull();
+
+    // The marker column comes back as a real column, keyed on the empty header.
+    expect(Object.keys(probe.stockRows[0])).toStrictEqual(['', ...HEADER_COLUMNS]);
+    expect(probe.stockRows[0]['']).toBe('+');
+  });
+
+  it('candidate E (trailing "+" on the row\'s first line): invisible to stock Gherkin', () => {
+    const probe = probeFixture('e-trailing-plus-first-line.feature');
+
+    expect(probe.tableLines).toBe(8);
+    expect(probe.highlightedTableLines).toBe(probe.tableLines);
+
+    // The 2 row-opening lines end on "+" rather than on a pipe, so each one's table region stays
+    // open until the following line closes it. Coloured, but spanning.
+    expect(probe.unterminatedTableLines).toBe(2);
+
+    // Gherkin drops everything after a row's final pipe, so the marker leaves no trace at all: the
+    // columns are exactly the declared ones and no cell holds the "+".
+    expect(probe.parseError).toBeNull();
+    expect(Object.keys(probe.stockRows[0])).toStrictEqual(HEADER_COLUMNS);
+    expect(Object.values(probe.stockRows[0])).not.toContain('+');
+    expect(probe.stockRows[0]).toStrictEqual({
+      type: 'major',
+      name: 'Santé',
+      enrollment: 'LSpS 1',
+      split_by: 'semester',
+      schedule_segments: '[',
+    });
+  });
+
+  it('candidate F (trailing "+" on every continued line): invisible to stock Gherkin', () => {
+    const probe = probeFixture('f-trailing-plus-every-line.feature');
+
+    expect(probe.tableLines).toBe(8);
+    expect(probe.highlightedTableLines).toBe(probe.tableLines);
+
+    // Every line of a logical row but its last ends on "+", so a whole logical row renders as one
+    // contiguous table region rather than one region per line.
+    expect(probe.unterminatedTableLines).toBe(5);
+
+    expect(probe.parseError).toBeNull();
+    expect(Object.keys(probe.stockRows[0])).toStrictEqual(HEADER_COLUMNS);
+    expect(Object.values(probe.stockRows[0])).not.toContain('+');
+    expect(probe.stockRows[0]).toStrictEqual({
+      type: 'major',
+      name: 'Santé',
+      enrollment: 'LSpS 1',
+      split_by: 'semester',
+      schedule_segments: '[',
+    });
   });
 });
