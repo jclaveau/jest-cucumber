@@ -382,6 +382,34 @@ Fonctionnalité: Disciplines
       expect(rows).toStrictEqual([{ type: 'major', pattern: 'a|b\nc\\d' }]);
     });
 
+    it('escapes a trailing backslash when another fragment follows it', () => {
+      // The "\n" joining two fragments opens with a backslash of its own, so an odd run at the end
+      // of a fragment would pair with it and leave a bare "n" where the newline should be.
+      expect(
+        rowsOfFirstStep(
+          featureWith(
+            `      | path     |
+      | C:\\dir\\  |+
+      | next     |
+`,
+          ),
+        ),
+      ).toStrictEqual([{ path: 'C:\\dir\\\nnext' }]);
+    });
+
+    it('leaves an already escaped trailing backslash alone', () => {
+      expect(
+        rowsOfFirstStep(
+          featureWith(
+            `      | path      |
+      | C:\\dir\\\\  |+
+      | next      |
+`,
+          ),
+        ),
+      ).toStrictEqual([{ path: 'C:\\dir\\\nnext' }]);
+    });
+
     it('keeps a blank fragment between two filled ones', () => {
       const rows = rowsOfFirstStep(
         featureWith(
@@ -513,8 +541,7 @@ Fonctionnalité: Disciplines
     });
 
     it('keeps a trailing backslash in the last fragment of a cell', () => {
-      // Only a fragment with another appended after it grows an escape at the seam, so a Windows
-      // path or a regex ending a cell is none of folding's business.
+      // Nothing is appended after the last fragment, so it is emitted exactly as written.
       expect(
         rowsOfFirstStep(
           featureWith(
@@ -591,17 +618,6 @@ Fonctionnalité: Disciplines
       |       | LSpS       |
 `),
       ).toBe('Line 6: expected "+" or nothing after a table row\'s last "|", got "++"');
-    });
-
-    it('when a folded fragment ends on a dangling backslash', () => {
-      // Reported against line 7, the fragment's own line, not line 6 where its logical row opens.
-      expect(
-        foldingError(`      | type  | pattern |
-      | major | a       |+
-      |       | b\\      |
-      |       | c       |
-`),
-      ).toBe('Line 7: a folded table cell fragment cannot end on a "\\" ("b\\")');
     });
 
     it('when a row marker is mistyped, rather than reading the row as a continuation', () => {

@@ -34,6 +34,7 @@ const IGNORED_BETWEEN_ROWS = /^\s*(#|$)/;
 // is dropped AND the rows on either side of it are welded into one.
 const SEPARATOR_CELL = /^-+$/;
 const DOC_STRING_DELIMITER = /^\s*("""|```)/;
+const TRAILING_BACKSLASHES = /\\+$/;
 const LANGUAGE_HEADER = /^\s*#\s*language\s*:\s*([\w-]+)\s*$/;
 const ROW_START_MARKER = '+';
 
@@ -94,37 +95,38 @@ const readTableRowLine = (line: string, lineNumber: number): TableRowLine => {
  * The newline is the whole of the contract: what a multiline value means is the step definition's
  * business, so wrapping a scalar over three lines yields the three lines, not the original scalar.
  */
-const foldCellFragments = (fragments: { text: string; lineNumber: number }[]) => {
-  const withoutTrailingSpaces = fragments.map(fragment => ({
-    ...fragment,
-    text: fragment.text.replace(/\s+$/, ''),
-  }));
+const foldCellFragments = (fragments: string[]) => {
+  const withoutTrailingSpaces = fragments.map(fragment => fragment.replace(/\s+$/, ''));
 
-  const firstFilled = withoutTrailingSpaces.findIndex(fragment => fragment.text !== '');
+  const firstFilled = withoutTrailingSpaces.findIndex(fragment => fragment !== '');
 
   if (firstFilled === -1) {
     return '';
   }
 
-  const lastFilled = withoutTrailingSpaces.reduce((last, fragment, index) => (fragment.text === '' ? last : index), 0);
+  const lastFilled = withoutTrailingSpaces.reduce((last, fragment, index) => (fragment === '' ? last : index), 0);
   const filled = withoutTrailingSpaces.slice(firstFilled, lastFilled + 1);
 
-  // Only a fragment with another one appended after it grows an escape sequence at the seam, so a
-  // trailing backslash is ambiguous there and nowhere else. The last fragment is emitted as it was
-  // written, which keeps a Windows path or a regex in the final line of a cell working.
-  const danglingEscape = filled.slice(0, -1).find(fragment => /(?:^|[^\\])(?:\\\\)*\\$/.test(fragment.text));
-
-  if (danglingEscape !== undefined) {
-    throw new Error(
-      `Line ${danglingEscape.lineNumber}: a folded table cell fragment cannot end on a "\\" ("${danglingEscape.text.trim()}")`,
-    );
-  }
-
   const sharedIndentation = filled
-    .filter(fragment => fragment.text !== '')
-    .reduce((shared, { text }) => Math.min(shared, text.length - text.trimStart().length), Infinity);
+    .filter(fragment => fragment !== '')
+    .reduce((shared, fragment) => Math.min(shared, fragment.length - fragment.trimStart().length), Infinity);
 
-  return filled.map(fragment => fragment.text.slice(sharedIndentation)).join('\\n');
+  const dedented = filled.map(fragment => fragment.slice(sharedIndentation));
+
+  return dedented
+    .map((fragment, index) => {
+      if (index === dedented.length - 1) {
+        return fragment;
+      }
+
+      // This fragment gets a "\n" appended after it, and that escape opens with a backslash of its
+      // own. An odd run of backslashes at the end of the fragment would pair with it and leave a
+      // bare "n" instead of a newline, so the run is completed into escaped backslashes.
+      const trailingBackslashes = TRAILING_BACKSLASHES.exec(fragment)?.[0].length ?? 0;
+
+      return trailingBackslashes % 2 === 0 ? fragment : `${fragment}\\`;
+    })
+    .join('\\n');
 };
 
 const foldLogicalRow = (rowLines: TableRowLine[], columnCount: number) => {
@@ -139,7 +141,7 @@ const foldLogicalRow = (rowLines: TableRowLine[], columnCount: number) => {
   }
 
   const values = Array.from({ length: columnCount }, (_unused, column) =>
-    foldCellFragments(rowLines.map(rowLine => ({ text: rowLine.cells[column], lineNumber: rowLine.lineNumber }))),
+    foldCellFragments(rowLines.map(rowLine => rowLine.cells[column])),
   );
 
   return `${firstLine.indentation}| ${values.join(' | ')} |`;
