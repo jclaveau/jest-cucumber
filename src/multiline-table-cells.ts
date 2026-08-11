@@ -26,6 +26,8 @@
 
 const TABLE_LINE = /^\s*\|/;
 const IGNORED_BETWEEN_ROWS = /^\s*(#|$)/;
+// An all-dashes row is always a delimiter, with no way to opt out and read it back as data: it
+// would take a table whose every column holds nothing but dashes, which nobody writes.
 const SEPARATOR_CELL = /^-+$/;
 const DOC_STRING_DELIMITER = /^\s*("""|```)/;
 const ROW_START_MARKER = '+';
@@ -87,6 +89,9 @@ const readTableRowLine = (line: string, lineNumber: number): TableRowLine => {
  * pretty-printed JSON array keeps its inner indentation while the column's own padding goes away.
  * Blank fragments at either end are dropped, so a cell that only carries a value on the logical
  * row's first line reads exactly as it would in a single-line table.
+ *
+ * The newline is the whole of the contract: what a multiline value means is the step definition's
+ * business, so wrapping a scalar over three lines yields the three lines, not the original scalar.
  */
 const foldCellFragments = (fragments: string[], lineNumber: number) => {
   const withoutTrailingSpaces = fragments.map(fragment => fragment.replace(/\s+$/, ''));
