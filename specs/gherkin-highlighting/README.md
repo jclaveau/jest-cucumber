@@ -1,8 +1,12 @@
 # Multiline table cells — GitHub highlighting probe
 
-Fixtures and measurements for the "multiline data-table cells" proposal. **No implementation
-here**: this directory only answers the question that has to be settled before any parser work,
-namely which candidate syntax survives GitHub's Gherkin renderer.
+Fixtures and measurements for the "multiline data-table cells" proposal: which candidate syntax
+survives GitHub's Gherkin renderer, which is the question that had to be settled before any parser
+work.
+
+**Outcome: C and E are implemented** — see [`src/multiline-table-cells.ts`](../../src/multiline-table-cells.ts)
+and [the user-facing docs](../../docs/GherkinTables.md#multiline-cells). A, B, D and F are kept
+here as measured fixtures only; the library rejects them.
 
 ## Why this matters
 
@@ -76,8 +80,9 @@ Prior art on the Cucumber side, all still unresolved:
 ## Measured results
 
 Produced by [`highlighting.test.ts`](highlighting.test.ts), which applies the tmbundle regexes
-above to each fixture and feeds each fixture to the `@cucumber/gherkin` parser this library
-already depends on.
+above to each fixture and feeds each fixture to the raw `@cucumber/gherkin` parser — deliberately
+not this library's `parseFeature`, which now folds C and E before parsing them, so the "stock
+Gherkin" column would stop measuring stock Gherkin.
 
 | Fixture                      | Table lines | Coloured | Region-spanning lines | Stock `@cucumber/gherkin`                                              |
 | ---------------------------- | ----------- | -------- | --------------------- | ---------------------------------------------------------------------- |
@@ -133,6 +138,14 @@ Note also that `@cucumber/gherkin` **trims every cell value**: `|   {"key": "x"}
 `{"key": "x"},`, with the leading indentation gone. Any candidate that folds cells _after_ the
 stock parser cannot preserve a pretty-printed JSON block's indentation. Folding has to happen on
 the raw feature text, before `new Parser(...).parse(...)`.
+
+### Why C and E, and not F
+
+F reads well and measures as well as E, but the two disagree about where a logical row ends: F's
+marker means "joins with the next line", E's means "the lines below continue me". Supporting both
+would make the same marker mean two things, so F-shaped input is rejected with an error rather than
+quietly read as E. D was dropped for costing a column with an empty header while buying nothing E
+does not already give.
 
 ## What is still only measurable by eye
 

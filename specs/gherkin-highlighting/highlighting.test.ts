@@ -1,6 +1,7 @@
 import { readFileSync, readdirSync } from 'fs';
 import { resolve } from 'path';
-import { parseFeature } from '../../src';
+import { AstBuilder, GherkinClassicTokenMatcher, Parser } from '@cucumber/gherkin';
+import { v4 as uuidv4 } from 'uuid';
 
 /*
  * Probe for the "multiline table cells" proposal. No implementation yet: these fixtures only
@@ -37,6 +38,25 @@ const FIXTURES_PATH = resolve(__dirname, 'fixtures');
 
 const isTableLine = (line: string) => /^\s*[|+]/.test(line);
 
+/*
+ * Deliberately the raw `@cucumber/gherkin` parser rather than this library's `parseFeature`: the
+ * question these fixtures answer is what *stock* Gherkin makes of each notation, and `parseFeature`
+ * now folds the separator and continuation-marker notations before parsing them.
+ */
+const parseWithStockGherkin = (featureText: string) => {
+  const ast = new Parser(new AstBuilder(uuidv4), new GherkinClassicTokenMatcher()).parse(featureText);
+  const rows = ast.feature?.children[0]?.scenario?.steps[0]?.dataTable?.rows;
+
+  if (!rows) {
+    throw new Error('this fixture has no data table on its first step');
+  }
+
+  const [headerRow, ...bodyRows] = rows;
+  const columns = headerRow.cells.map(cell => cell.value);
+
+  return bodyRows.map(row => Object.fromEntries(row.cells.map((cell, index) => [columns[index], cell.value])));
+};
+
 const probeFixture = (fileName: string) => {
   const featureText = readFileSync(resolve(FIXTURES_PATH, fileName), 'utf8');
   const tableLines = featureText.split('\n').filter(isTableLine);
@@ -45,7 +65,7 @@ const probeFixture = (fileName: string) => {
   let stockRows: Record<string, string>[] = [];
 
   try {
-    stockRows = parseFeature(featureText).scenarios[0].steps[0].stepArgument as Record<string, string>[];
+    stockRows = parseWithStockGherkin(featureText);
   } catch (err) {
     parseError = (err as Error).message;
   }
