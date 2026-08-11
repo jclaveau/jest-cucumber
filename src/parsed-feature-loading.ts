@@ -7,6 +7,7 @@ import { Parser, AstBuilder, Dialect, dialects, GherkinClassicTokenMatcher } fro
 import { v4 as uuidv4 } from 'uuid';
 
 import { getJestCucumberConfiguration, Options } from './configuration';
+import { foldMultilineTableCells } from './multiline-table-cells';
 import { ParsedFeature, ParsedScenario, ParsedStep, ParsedScenarioOutline, ParsedStepArgument } from './models';
 
 const parseDataTableRow = (astDataTableRow: any) => {
@@ -316,10 +317,14 @@ const translateKeywords = (astFeature: any) => {
 export const parseFeature = (featureText: string, options?: Options): ParsedFeature => {
   let ast: any;
 
+  // Folded before the Gherkin parser rather than after it, because the parser trims every cell and
+  // a cell spread over several lines has to keep the indentation that makes it readable.
+  const foldedFeatureText = foldMultilineTableCells(featureText);
+
   try {
     const builder = new AstBuilder(uuidv4 as any);
     const tokenMatcher = new GherkinClassicTokenMatcher();
-    ast = new Parser(builder, tokenMatcher).parse(featureText);
+    ast = new Parser(builder, tokenMatcher).parse(foldedFeatureText);
   } catch (err) {
     throw new Error(`Error parsing feature Gherkin: ${err.message}`);
   }
@@ -353,6 +358,10 @@ export const loadFeature = (featureFilePath: string, options?: Options) => {
     if (err.code === 'ENOENT') {
       throw new Error(`Feature file not found (${absoluteFeatureFilePath})`);
     }
+
+    // Everything the parser and the multiline-cell folding report is addressed by line number, and
+    // a line number is worthless across a suite of feature files without the file it belongs to.
+    err.message = `${err.message} (${absoluteFeatureFilePath})`;
 
     throw err;
   }

@@ -58,3 +58,67 @@ defineFeature(feature, test => {
   });
 });
 ```
+
+## Multiline cells
+
+A cell holding a JSON array or a long composite identifier pushes its row well past any readable
+line width. Such a row can be spread over several lines, in either of two notations.
+
+**Separator rows** — logical rows are delimited by a line whose cells contain only dashes, like a
+Markdown table:
+
+```gherkin
+  Given there are the following available disciplines
+  | type  | enrollment | schedule_segments        |
+  |-------|------------|--------------------------|
+  | major | LSpS 1     | [                        |
+  |       | LSpS       |   {"key": "semester_1"}, |
+  |       | Bordeaux   |   {"key": "semester_2"}  |
+  |       |            | ]                        |
+  |-------|------------|--------------------------|
+  | minor | Terminale  | []                       |
+```
+
+**A trailing `+`** — a `+` after a row's closing pipe marks that row's beginning. Every row carries
+one on its first line, single-line rows included, and a line without one continues the row above:
+
+```gherkin
+  Given there are the following available disciplines
+  | type  | enrollment | schedule_segments        |
+  | major | LSpS 1     | [                        |+   <- opens a row
+  |       | LSpS       |   {"key": "semester_1"}, |    <- continues it
+  |       | Bordeaux   |   {"key": "semester_2"}  |    <- continues it
+  |       |            | ]                        |    <- continues it
+  | minor | Terminale  | []                       |+   <- opens a row
+```
+
+Both give the step definition the same two rows:
+
+```javascript
+[
+  {
+    type: 'major',
+    enrollment: 'LSpS 1\nLSpS\nBordeaux',
+    schedule_segments: '[\n  {"key": "semester_1"},\n  {"key": "semester_2"}\n]',
+  },
+  { type: 'minor', enrollment: 'Terminale', schedule_segments: '[]' },
+];
+```
+
+Things worth knowing:
+
+- **A table using neither notation is untouched**, so nothing changes for tables you already have.
+  A separator row means a rule drawn tight against the pipes (`|-----|-----|`, any number of
+  dashes), so a `-` used as a padded placeholder value (`| - | - |`) stays data.
+- **A cell is its fragments joined by newlines**, with the column's own padding stripped and any
+  indentation beyond it kept — which is what lets a pretty-printed JSON cell survive as valid JSON.
+- **Blank fragments at either end of a cell are dropped**, so a cell that only carries a value on
+  the row's first line reads exactly as it would in a single-line table. A blank fragment between
+  two filled ones is kept, as an empty line.
+- **Nothing about a line's cells decides whether it opens a row**, only the marker does, so a row
+  may perfectly well have an empty first cell. Forget the `+` on a row and it joins the row above.
+- **Comments and blank lines between rows are ignored**, exactly as in any other Gherkin table, so
+  one can sit inside a multiline row without breaking it.
+- **The two notations cannot be mixed in one table**, and an ambiguous table fails with the line
+  number at fault rather than being guessed at.
+- **Line numbers are preserved**, so validation and error messages still point at the right line.
