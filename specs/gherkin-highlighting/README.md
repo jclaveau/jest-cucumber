@@ -1,0 +1,199 @@
+# Multiline table cells — GitHub highlighting probe
+
+Fixtures and measurements for the "multiline data-table cells" proposal. **No implementation
+here**: this directory only answers the question that has to be settled before any parser work,
+namely which candidate syntax survives GitHub's Gherkin renderer.
+
+## Why this matters
+
+Gherkin data tables are one physical line per row. A cell holding a JSON array, or a long
+composite identifier, pushes the row past any reasonable line width, and the table stops being
+readable — which is the readability argument the whole point of Gherkin rests on. The problem got
+sharper now that feature files are routinely generated: a generator has no incentive to keep a
+table narrow.
+
+The escape hatches Gherkin offers today are:
+
+- **`\n` inside a cell.** Supported by `@cucumber/gherkin`, documented in the
+  [Gherkin reference](https://cucumber.io/docs/gherkin/reference/). It moves the newline into the
+  value but does nothing for the source line width, which is the actual complaint.
+- **A doc string instead of a table.** Loses the tabular shape entirely.
+- **One scenario per row.** Multiplies runtime and duplicates the prose.
+
+Prior art on the Cucumber side, all still unresolved:
+
+- [cucumber/common#565 — Gherkin: Accept multiline example cell](https://github.com/cucumber/common/issues/565)
+  proposes continuation rows in `Examples:` tables. Closed with no maintainer decision.
+- [cucumber-attic/gherkin#52 — Multiline in examples tables](https://github.com/cucumber-attic/gherkin/issues/52)
+- [cucumber-attic/gherkin#146 — escaping new line in tables](https://github.com/cucumber-attic/gherkin/issues/146)
+
+## How GitHub highlights Gherkin
+
+- GitHub delegates to [github-linguist/linguist](https://github.com/github-linguist/linguist/blob/main/grammars.yml),
+  which maps Gherkin to the scope `text.gherkin.feature`.
+- That scope is vendored from
+  [cucumber/cucumber-tmbundle](https://github.com/cucumber/cucumber-tmbundle) — **archived, last
+  pushed December 2020**. It is not going to grow a new rule for us.
+- The grammar's entire notion of a table is a single begin/end rule:
+
+  ```xml
+  <key>table</key>
+  <dict>
+    <key>begin</key><string>^\s*\|</string>
+    <key>end</key><string>\|\s*$</string>
+    <key>name</key><string>keyword.control.cucumber.table</string>
+  </dict>
+  ```
+
+- Consequence: **a line that does not start with `|` gets no table scope at all** and renders as
+  plain uncoloured text. Any marker character placed in the left gutter — `+`, `-`, `\`, anything
+  — kills the highlighting of the line it is on.
+- Unrelated but worth knowing while reading rendered output: GitHub's Gherkin highlighting is
+  already partly broken (`Rule:` is not coloured), reported in
+  [community discussion #185937](https://github.com/orgs/community/discussions/185937) with no
+  staff reply.
+
+## Candidates
+
+| Fixture                                                                 | Row marker                           | Continuation marker                                              |
+| ----------------------------------------------------------------------- | ------------------------------------ | ---------------------------------------------------------------- |
+| [`00-baseline.feature`](fixtures/00-baseline.feature)                   | `\|`                                 | — (stock Gherkin, control)                                       |
+| [`a-plus-starts-row.feature`](fixtures/a-plus-starts-row.feature)       | `+`                                  | `\|`                                                             |
+| [`b-plus-continues-row.feature`](fixtures/b-plus-continues-row.feature) | `\|`                                 | `+`                                                              |
+| [`c-separator-row.feature`](fixtures/c-separator-row.feature)           | `\|`                                 | `\|`, logical rows split by a Markdown-style `\|---\|---\|` line |
+| [`d-marker-column.feature`](fixtures/d-marker-column.feature)           | `\|`, `+` in a leading marker column | `\|`, blank marker column                                        |
+
+## Measured results
+
+Produced by [`highlighting.test.ts`](highlighting.test.ts), which applies the tmbundle regexes
+above to each fixture and feeds each fixture to the `@cucumber/gherkin` parser this library
+already depends on.
+
+| Fixture                | Table lines | Highlighted on GitHub | Parses with stock `@cucumber/gherkin`                               |
+| ---------------------- | ----------- | --------------------- | ------------------------------------------------------------------- |
+| `00-baseline`          | 3           | 3 / 3                 | yes                                                                 |
+| `a-plus-starts-row`    | 8           | 6 / 8                 | **no** — `expected: #EOF, #TableRow, … got '+ major \| Santé \| …'` |
+| `b-plus-continues-row` | 8           | 3 / 8                 | **no** — same parser error on every `+` line                        |
+| `c-separator-row`      | 10          | 10 / 10               | yes                                                                 |
+| `d-marker-column`      | 8           | 8 / 8                 | yes                                                                 |
+
+Two separate readings of the same numbers:
+
+- **Candidate A loses fewer lines than candidate B**, but it loses the wrong ones: the uncoloured
+  lines are exactly the ones carrying a row's identifying values, the lines a reader scans.
+  Candidate B loses more lines, but keeps colour on every row opener, and a table containing no
+  multiline cell is byte-identical to stock Gherkin.
+- **Candidates C and D lose nothing**, because every line still starts with `|`. That is not a
+  coincidence — it is the only way to satisfy a grammar whose sole table rule is `^\s*\|`.
+
+### Stock-parser behaviour is not the same kind of "yes"
+
+C and D parse, but into junk rows rather than into folded rows — a pre-processor is still
+required. What "parses" buys them is that a reader without the plugin, or a third-party Gherkin
+tool, gets a degraded table instead of a hard failure:
+
+```js
+// c-separator-row, parsed by stock @cucumber/gherkin
+{ type: '-------', name: '-------', enrollment: '--------------------------', … }
+{ type: 'major',   name: 'Santé',   enrollment: 'LSpS 1', schedule_segments: '[' }
+
+// d-marker-column, parsed by stock @cucumber/gherkin
+{ '': '+', type: 'major', name: 'Santé', enrollment: 'LSpS 1', schedule_segments: '[' }
+```
+
+Whether silent degradation beats A/B's loud parser error is an open design question, not a
+settled advantage.
+
+Note also that `@cucumber/gherkin` **trims every cell value**: `|   {"key": "x"}, |` arrives as
+`{"key": "x"},`, with the leading indentation gone. Any candidate that folds cells _after_ the
+stock parser cannot preserve a pretty-printed JSON block's indentation. Folding has to happen on
+the raw feature text, before `new Parser(...).parse(...)`.
+
+## What is still only measurable by eye
+
+The probe covers the grammar. It cannot cover:
+
+- **The rendered colours themselves** on `github.com`, in the blob view and in a fenced code block
+  tagged `gherkin`.
+- **The diff view**, where GitHub already puts a `+` in the gutter of every added line, so a
+  candidate-A row renders as `+` immediately followed by the syntax's own `+`.
+
+For those, open the fixtures on the branch and open a pull request against it.
+
+## Side by side, for the eyeball test
+
+Same tables as the fixtures, in fenced blocks tagged `gherkin`, so this page exercises the fenced
+code block renderer while the fixture files exercise the blob renderer.
+
+Baseline — stock Gherkin:
+
+```gherkin
+    Given there are the following available disciplines
+      | type  | name  | enrollment               | split_by | schedule_segments                              |
+      | major | Santé | LSpS 1 - LSpS - Bordeaux | semester | [{"key": "semester_1"}, {"key": "semester_2"}] |
+      | minor | Droit | LSpS 1 - LSpS - Bordeaux | semester | [{"key": "semester_1"}]                        |
+```
+
+Candidate A — `+` starts a logical row:
+
+```gherkin
+    Given there are the following available disciplines
+      | type  | name  | enrollment               | split_by | schedule_segments        |
+      + major | Santé | LSpS 1                   | semester | [                        |
+      |       |       | LSpS                     |          |   {"key": "semester_1"}, |
+      |       |       | Bordeaux                 |          |   {"key": "semester_2"}  |
+      |       |       |                          |          | ]                        |
+      + minor | Droit | LSpS 1 - LSpS - Bordeaux | semester | [                        |
+      |       |       |                          |          |   {"key": "semester_1"}  |
+      |       |       |                          |          | ]                        |
+```
+
+Candidate B — `+` continues a logical row:
+
+```gherkin
+    Given there are the following available disciplines
+      | type  | name  | enrollment               | split_by | schedule_segments        |
+      | major | Santé | LSpS 1                   | semester | [                        |
+      +       |       | LSpS                     |          |   {"key": "semester_1"}, |
+      +       |       | Bordeaux                 |          |   {"key": "semester_2"}  |
+      +       |       |                          |          | ]                        |
+      | minor | Droit | LSpS 1 - LSpS - Bordeaux | semester | [                        |
+      +       |       |                          |          |   {"key": "semester_1"}  |
+      +       |       |                          |          | ]                        |
+```
+
+Candidate C — Markdown-style separator rows:
+
+```gherkin
+    Given there are the following available disciplines
+      | type  | name  | enrollment               | split_by | schedule_segments        |
+      |-------|-------|--------------------------|----------|--------------------------|
+      | major | Santé | LSpS 1                   | semester | [                        |
+      |       |       | LSpS                     |          |   {"key": "semester_1"}, |
+      |       |       | Bordeaux                 |          |   {"key": "semester_2"}  |
+      |       |       |                          |          | ]                        |
+      |-------|-------|--------------------------|----------|--------------------------|
+      | minor | Droit | LSpS 1 - LSpS - Bordeaux | semester | [                        |
+      |       |       |                          |          |   {"key": "semester_1"}  |
+      |       |       |                          |          | ]                        |
+```
+
+Candidate D — leading marker column:
+
+```gherkin
+    Given there are the following available disciplines
+      |   | type  | name  | enrollment               | split_by | schedule_segments        |
+      | + | major | Santé | LSpS 1                   | semester | [                        |
+      |   |       |       | LSpS                     |          |   {"key": "semester_1"}, |
+      |   |       |       | Bordeaux                 |          |   {"key": "semester_2"}  |
+      |   |       |       |                          |          | ]                        |
+      | + | minor | Droit | LSpS 1 - LSpS - Bordeaux | semester | [                        |
+      |   |       |       |                          |          |   {"key": "semester_1"}  |
+      |   |       |       |                          |          | ]                        |
+```
+
+## Running the probe
+
+```sh
+npx jest specs/gherkin-highlighting
+```
