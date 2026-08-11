@@ -1,4 +1,5 @@
-import { parseFeature } from '../src';
+import { loadFeature, parseFeature } from '../src';
+import { generateCodeFromFeature } from '../src/code-generation/generate-code-by-line-number';
 import { foldMultilineTableCells } from '../src/multiline-table-cells';
 
 const featureWith = (steps: string) => `Feature: Disciplines
@@ -192,6 +193,53 @@ describe('multiline table cells', () => {
       expect(outline.scenarios[0].title).toBe('Enrolling in major');
       expect(outline.scenarios[0].steps[0].stepText).toBe(
         'the segments [\n  {"key": "semester_1"},\n  {"key": "semester_2"}\n]',
+      );
+    });
+  });
+
+  describe('the rest of the library', () => {
+    // The two fixtures the highlighting probe measures are also the two notations that shipped, so
+    // they double as the on-disk feature files this reads through the public `loadFeature`.
+    it.each([
+      ['separator notation', './specs/gherkin-highlighting/fixtures/c-separator-row.feature'],
+      ['compact notation', './specs/gherkin-highlighting/fixtures/e-trailing-plus-first-line.feature'],
+    ])('folds a %s table read off disk by loadFeature', (_notation, featureFilePath) => {
+      const rows = loadFeature(featureFilePath, { loadRelativePath: false }).scenarios[0].steps[0]
+        .stepArgument as Record<string, string>[];
+
+      expect(rows[0]).toStrictEqual({
+        type: 'major',
+        name: 'Santé',
+        enrollment: 'LSpS 1\nLSpS\nBordeaux',
+        split_by: 'semester',
+        schedule_segments: '[\n  {"key": "semester_1"},\n  {"key": "semester_2"}\n]',
+      });
+    });
+
+    it('folds a table written in another spoken language', () => {
+      const step = parseFeature(`# language: fr
+Fonctionnalité: Disciplines
+
+  Scénario: Inscription
+    Soit les disciplines suivantes
+      | type  | segments |
+      | major | [        |+
+      |       |   1,     |
+      |       | ]        |
+`).scenarios[0].steps[0];
+
+      expect(step.keyword).toBe('given');
+      expect(step.stepArgument).toStrictEqual([{ type: 'major', segments: '[\n  1,\n]' }]);
+    });
+
+    it('generates step code for the line the folded table opens on', () => {
+      // Code generation addresses steps by line number, so it only lands on the right step because
+      // folding blanks the lines a logical row consumed instead of removing them.
+      expect(generateCodeFromFeature(parseFeature(COMPACT_TABLE), 4)).toBe(
+        "given('there are the following available disciplines', (table) => {\n\n});",
+      );
+      expect(generateCodeFromFeature(parseFeature(COMPACT_TABLE), 11)).toBe(
+        "then('enrollment is open', () => {\n\n});",
       );
     });
   });
