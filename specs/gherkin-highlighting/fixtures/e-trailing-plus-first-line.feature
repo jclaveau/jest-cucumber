@@ -1,7 +1,8 @@
-Feature: Multiline table cells — candidate E: a trailing "+" on the row's first line
+Feature: Multiline table cells — candidate E: a trailing "+" opens a logical row
 
-  A "+" after the closing pipe of a row's first line means "this logical row continues".
-  The lines that follow are plain Gherkin rows and carry the continued cells.
+  A "+" after a row's closing pipe marks that row's beginning, so every row carries one on its
+  first line — the single-line row at the bottom very much included — and a line without one
+  continues the row above. Nothing about a line's cells decides which it is.
 
   Every line still starts with "|", so the line keeps its table scope. What the trailing "+"
   changes is the tmbundle rule's *end* match, `\|\s*$`, which no longer fires on that line: the
@@ -18,3 +19,4 @@ Feature: Multiline table cells — candidate E: a trailing "+" on the row's firs
       | minor | Droit | LSpS 1 - LSpS - Bordeaux | semester | [                        |+
       |       |       |                          |          |   {"key": "semester_1"}  |
       |       |       |                          |          | ]                        |
+      | minor | Génie | Terminale                | semester | []                       |+

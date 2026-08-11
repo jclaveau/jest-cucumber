@@ -8,8 +8,8 @@ Feature: Multiline table cell arguments
       When I run my Jest Cucumber tests
       Then my step definition should get one row object per logical row, with the multiline cells folded
 
-    Scenario: Logical rows marked by a trailing continuation marker
-      Given a step with a table whose multiline rows are marked with a trailing continuation marker
+    Scenario: Logical rows opened by a trailing marker
+      Given a step with a table whose every row is opened by a trailing marker
       When I run my Jest Cucumber tests
       Then my step definition should get one row object per logical row, with the multiline cells folded
 
@@ -22,7 +22,7 @@ Feature: Multiline table cell arguments
 
   Rule: When a table is ambiguous, running the feature should fail with the offending line number.
 
-    Scenario: A continuation row that continues an unmarked row
-      Given a step with a table whose continuation row follows an unmarked row
+    Scenario: A table whose first row is not marked
+      Given a step with a table whose first row is not marked
       When I run my Jest Cucumber tests
       Then I should see an error message telling me which line is at fault

@@ -27,7 +27,7 @@ Feature: Multiline table cells
         |       | LSpS       |   {"key": "semester_1"}, |
         |       | Bordeaux   |   {"key": "semester_2"}  |
         |       |            | ]                        |
-        | minor | Terminale  | []                       |
+        | minor | Terminale  | []                       |+
 `;
 
 export const featureWithoutMultilineCells = `
@@ -40,15 +40,14 @@ Feature: Multiline table cells
         | minor | Terminale  | []                       |
 `;
 
-export const featureWithUnmarkedContinuationRow = `
+export const featureWithUnmarkedFirstRow = `
 Feature: Multiline table cells
 
     Scenario: Matching steps
         Given a given step with this:
         | type  | enrollment |
         | major | LSpS 1     |
-        |       | LSpS       |+
-        |       | Bordeaux   |
+        | minor | Terminale  |+
 `;
 
 export const tableStep = (stepArgs: unknown[]): MockStepDefinitions => {

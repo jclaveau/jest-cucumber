@@ -2,7 +2,7 @@ import { loadFeature, defineFeature, DefineStepFunction } from '../../src';
 import {
   featureWithContinuationMarkers,
   featureWithSeparatorRows,
-  featureWithUnmarkedContinuationRow,
+  featureWithUnmarkedFirstRow,
   featureWithoutMultilineCells,
   tableStep,
 } from '../test-data/multiline-table-cells';
@@ -62,8 +62,8 @@ defineFeature(feature, test => {
     thenTheRowsShouldBeFolded(then);
   });
 
-  test('Logical rows marked by a trailing continuation marker', ({ given, when, then }) => {
-    given('a step with a table whose multiline rows are marked with a trailing continuation marker', () => {
+  test('Logical rows opened by a trailing marker', ({ given, when, then }) => {
+    given('a step with a table whose every row is opened by a trailing marker', () => {
       featureFile = featureWithContinuationMarkers;
       stepDefinitions = tableStep(stepArguments);
     });
@@ -90,16 +90,18 @@ defineFeature(feature, test => {
     });
   });
 
-  test('A continuation row that continues an unmarked row', ({ given, when, then }) => {
-    given('a step with a table whose continuation row follows an unmarked row', () => {
-      featureFile = featureWithUnmarkedContinuationRow;
+  test('A table whose first row is not marked', ({ given, when, then }) => {
+    given('a step with a table whose first row is not marked', () => {
+      featureFile = featureWithUnmarkedFirstRow;
       stepDefinitions = tableStep(stepArguments);
     });
 
     whenIRunMyJestCucumberTests(when);
 
     then('I should see an error message telling me which line is at fault', () => {
-      expect(errorMessage).toBe('Line 8: continues line 7, which is not marked with "|+"');
+      expect(errorMessage).toBe(
+        'Line 7: every row of this table opens with "|+", so this line reads as a continuation of the header',
+      );
       expect(stepArguments).toHaveLength(0);
     });
   });

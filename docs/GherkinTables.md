@@ -79,17 +79,17 @@ Markdown table:
   | minor | Terminale  | []                       |
 ```
 
-**A trailing `+`** — a `+` after a row's closing pipe means the lines below it continue that row,
-up to the next line whose first cell is filled:
+**A trailing `+`** — a `+` after a row's closing pipe marks that row's beginning. Every row carries
+one on its first line, single-line rows included, and a line without one continues the row above:
 
 ```gherkin
   Given there are the following available disciplines
   | type  | enrollment | schedule_segments        |
-  | major | LSpS 1     | [                        |+
-  |       | LSpS       |   {"key": "semester_1"}, |
-  |       | Bordeaux   |   {"key": "semester_2"}  |
-  |       |            | ]                        |
-  | minor | Terminale  | []                       |
+  | major | LSpS 1     | [                        |+   <- opens a row
+  |       | LSpS       |   {"key": "semester_1"}, |    <- continues it
+  |       | Bordeaux   |   {"key": "semester_2"}  |    <- continues it
+  |       |            | ]                        |    <- continues it
+  | minor | Terminale  | []                       |+   <- opens a row
 ```
 
 Both give the step definition the same two rows:
@@ -115,8 +115,8 @@ Things worth knowing:
 - **Blank fragments at either end of a cell are dropped**, so a cell that only carries a value on
   the row's first line reads exactly as it would in a single-line table. A blank fragment between
   two filled ones is kept, as an empty line.
-- **With the trailing `+`, a continuation line is one whose first cell is empty.** A logical row
-  therefore needs a filled first cell. Use the separator notation when that does not hold.
+- **Nothing about a line's cells decides whether it opens a row**, only the marker does, so a row
+  may perfectly well have an empty first cell. Forget the `+` on a row and it joins the row above.
 - **Comments and blank lines between rows are ignored**, exactly as in any other Gherkin table, so
   one can sit inside a multiline row without breaking it.
 - **The two notations cannot be mixed in one table**, and an ambiguous table fails with the line

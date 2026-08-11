@@ -30,7 +30,7 @@ const COMPACT_TABLE = featureWith(
       |       | LSpS       |   {"key": "semester_1"}, |
       |       | Bordeaux   |   {"key": "semester_2"}  |
       |       |            | ]                        |
-      | minor | Terminale  | []                       |
+      | minor | Terminale  | []                       |+
 `,
 );
 
@@ -95,12 +95,29 @@ describe('multiline table cells', () => {
       expect(rowsOfFirstStep(COMPACT_TABLE)).toStrictEqual(rowsOfFirstStep(SEPARATOR_TABLE));
     });
 
-    it('lets a single-line row follow a folded one without a marker', () => {
+    it('marks a single-line row too, so it cannot read as a continuation', () => {
       expect(rowsOfFirstStep(COMPACT_TABLE)[1]).toStrictEqual({
         type: 'minor',
         enrollment: 'Terminale',
         schedule_segments: '[]',
       });
+    });
+
+    it('lets a logical row have an empty first cell, since the marker alone opens it', () => {
+      const rows = rowsOfFirstStep(
+        featureWith(
+          `      | type  | enrollment |
+      | major | LSpS 1     |+
+      |       | LSpS       |
+      |       | Terminale  |+
+`,
+        ),
+      );
+
+      expect(rows).toStrictEqual([
+        { type: 'major', enrollment: 'LSpS 1\nLSpS' },
+        { type: '', enrollment: 'Terminale' },
+      ]);
     });
   });
 
@@ -254,7 +271,7 @@ Fonctionnalité: Disciplines
       |       | LSpS       |
 
       |       | Bordeaux   |
-      | minor | Terminale  |
+      | minor | Terminale  |+
 `,
         ),
       );
@@ -392,47 +409,16 @@ Fonctionnalité: Disciplines
       | major | LSpS 1     |+
       |       | LSpS       |
 `),
-      ).toBe('Line 5: a table cannot mix separator rows and "|+" continuation markers');
+      ).toBe('Line 5: a table cannot mix separator rows and "|+" row markers');
     });
 
-    it('when a continuation row follows an unmarked row', () => {
+    it('when the first body row is not marked, so it continues the header', () => {
       expect(
         foldingError(`      | type  | enrollment |
-      | major | LSpS 1     |+
-      |       | LSpS       |
-      | minor | Terminale  |
-      |       | Bordeaux   |
+      | major | LSpS 1     |
+      | minor | Terminale  |+
 `),
-      ).toBe('Line 9: continues line 8, which is not marked with "|+"');
-    });
-
-    it('when the first body row is a continuation', () => {
-      expect(
-        foldingError(`      | type  | enrollment |
-      |       | LSpS 1     |
-      | major | LSpS       |+
-      |       | Bordeaux   |
-`),
-      ).toBe('Line 6: a continuation row must follow a row marked with "|+"');
-    });
-
-    it('when a marked row has no continuation', () => {
-      expect(
-        foldingError(`      | type  | enrollment |
-      | major | LSpS 1     |+
-      | minor | Terminale  |
-`),
-      ).toBe('Line 6: marked with "|+" but no continuation row follows');
-    });
-
-    it('when a continuation row carries the marker too', () => {
-      expect(
-        foldingError(`      | type  | enrollment |
-      | major | LSpS 1     |+
-      |       | LSpS       |+
-      |       | Bordeaux   |
-`),
-      ).toBe('Line 7: only a logical row\'s first line carries "|+", not its continuation rows');
+      ).toBe('Line 6: every row of this table opens with "|+", so this line reads as a continuation of the header');
     });
 
     it('when the header itself is marked', () => {

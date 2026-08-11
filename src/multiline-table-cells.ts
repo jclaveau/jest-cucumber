@@ -6,12 +6,17 @@
  *   separator notation, verbose      compact notation
  *   -----------------------------    ------------------------------
  *   | type  | segments           |   | type  | segments           |
- *   |-------|--------------------|   | major | [                  |+
- *   | major | [                  |   |       |   {"key": "s_1"},  |
- *   |       |   {"key": "s_1"},  |   |       | ]                  |
- *   |       | ]                  |   | minor | []                 |
+ *   |-------|--------------------|   | major | [                  |+   <- opens a row
+ *   | major | [                  |   |       |   {"key": "s_1"},  |    <- continues it
+ *   |       |   {"key": "s_1"},  |   |       | ]                  |    <- continues it
+ *   |       | ]                  |   | minor | []                 |+   <- opens a row
  *   |-------|--------------------|
  *   | minor | []                 |
+ *
+ * In the separator notation the delimiter line is the row boundary. In the compact notation the
+ * "+" marks a row's beginning, so every row carries one on its first line — single-line rows very
+ * much included — and a line without one continues the row above. Nothing about a line's cells
+ * decides which it is.
  *
  * Both notations keep every line starting with a pipe, which is what GitHub's Gherkin grammar
  * needs to colour them — see specs/gherkin-highlighting for the measurements behind that choice.
@@ -23,14 +28,14 @@ const TABLE_LINE = /^\s*\|/;
 const IGNORED_BETWEEN_ROWS = /^\s*(#|$)/;
 const SEPARATOR_CELL = /^-+$/;
 const DOC_STRING_DELIMITER = /^\s*("""|```)/;
-const CONTINUATION_MARKER = '+';
+const ROW_START_MARKER = '+';
 
 type TableRowLine = {
   lineNumber: number;
   indentation: string;
   cells: string[];
   isSeparator: boolean;
-  isMarkedAsContinued: boolean;
+  isMarkedAsRowStart: boolean;
 };
 
 const splitOnUnescapedPipes = (line: string) => {
@@ -62,9 +67,9 @@ const readTableRowLine = (line: string, lineNumber: number): TableRowLine => {
   const afterLastPipe = parts[parts.length - 1].trim();
   const cells = parts.slice(1, -1);
 
-  if (afterLastPipe !== '' && afterLastPipe !== CONTINUATION_MARKER && afterLastPipe.startsWith(CONTINUATION_MARKER)) {
+  if (afterLastPipe !== '' && afterLastPipe !== ROW_START_MARKER && afterLastPipe.startsWith(ROW_START_MARKER)) {
     throw new Error(
-      `Line ${lineNumber}: expected "${CONTINUATION_MARKER}" or nothing after a table row's last "|", got "${afterLastPipe}"`,
+      `Line ${lineNumber}: expected "${ROW_START_MARKER}" or nothing after a table row's last "|", got "${afterLastPipe}"`,
     );
   }
 
@@ -73,7 +78,7 @@ const readTableRowLine = (line: string, lineNumber: number): TableRowLine => {
     indentation,
     cells,
     isSeparator: cells.length > 0 && cells.every(cell => SEPARATOR_CELL.test(cell.trim())),
-    isMarkedAsContinued: afterLastPipe === CONTINUATION_MARKER,
+    isMarkedAsRowStart: afterLastPipe === ROW_START_MARKER,
   };
 };
 
@@ -154,50 +159,25 @@ const groupRowsBySeparator = (bodyLines: TableRowLine[]) => {
   return logicalRows;
 };
 
-const groupRowsByContinuationMarker = (bodyLines: TableRowLine[]) => {
+const groupRowsByRowStartMarker = (bodyLines: TableRowLine[]) => {
   const logicalRows: TableRowLine[][] = [];
 
   bodyLines.forEach(rowLine => {
-    const opensARow = rowLine.cells.length === 0 || rowLine.cells[0].trim() !== '';
-    const currentRow = logicalRows[logicalRows.length - 1];
-
-    if (opensARow) {
+    if (rowLine.isMarkedAsRowStart) {
       logicalRows.push([rowLine]);
       return;
     }
 
+    const currentRow = logicalRows[logicalRows.length - 1];
+
     if (!currentRow) {
       throw new Error(
-        `Line ${rowLine.lineNumber}: a continuation row must follow a row marked with "|${CONTINUATION_MARKER}"`,
-      );
-    }
-
-    if (!currentRow[0].isMarkedAsContinued) {
-      throw new Error(
-        `Line ${rowLine.lineNumber}: continues line ${currentRow[0].lineNumber}, which is not marked with "|${CONTINUATION_MARKER}"`,
-      );
-    }
-
-    // Marking every line of a row, the way a trailing backslash works in a shell, would read as
-    // "joins with the next line" and so would disagree with this notation about where the row
-    // ends. Only the row's first line carries the marker, and anything else is rejected rather
-    // than quietly reinterpreted.
-    if (rowLine.isMarkedAsContinued) {
-      throw new Error(
-        `Line ${rowLine.lineNumber}: only a logical row's first line carries "|${CONTINUATION_MARKER}", not its continuation rows`,
+        `Line ${rowLine.lineNumber}: every row of this table opens with "|${ROW_START_MARKER}", so this line reads as a continuation of the header`,
       );
     }
 
     currentRow.push(rowLine);
   });
-
-  const emptyPromise = logicalRows.find(rowLines => rowLines[0].isMarkedAsContinued && rowLines.length === 1);
-
-  if (emptyPromise) {
-    throw new Error(
-      `Line ${emptyPromise[0].lineNumber}: marked with "|${CONTINUATION_MARKER}" but no continuation row follows`,
-    );
-  }
 
   return logicalRows;
 };
@@ -208,15 +188,15 @@ const foldTableBlock = (blockLines: string[], firstLineNumber: number) => {
   );
 
   const usesSeparators = rowLines.some(rowLine => rowLine.isSeparator);
-  const usesContinuationMarkers = rowLines.some(rowLine => rowLine.isMarkedAsContinued);
+  const usesRowStartMarkers = rowLines.some(rowLine => rowLine.isMarkedAsRowStart);
 
-  if (usesSeparators && usesContinuationMarkers) {
+  if (usesSeparators && usesRowStartMarkers) {
     throw new Error(
-      `Line ${firstLineNumber}: a table cannot mix separator rows and "|${CONTINUATION_MARKER}" continuation markers`,
+      `Line ${firstLineNumber}: a table cannot mix separator rows and "|${ROW_START_MARKER}" row markers`,
     );
   }
 
-  if (!usesSeparators && !usesContinuationMarkers) {
+  if (!usesSeparators && !usesRowStartMarkers) {
     return blockLines;
   }
 
@@ -226,11 +206,11 @@ const foldTableBlock = (blockLines: string[], firstLineNumber: number) => {
     throw new Error(`Line ${headerLine.lineNumber}: a table cannot open on a separator row`);
   }
 
-  if (headerLine.isMarkedAsContinued) {
-    throw new Error(`Line ${headerLine.lineNumber}: a table header cannot be marked with "|${CONTINUATION_MARKER}"`);
+  if (headerLine.isMarkedAsRowStart) {
+    throw new Error(`Line ${headerLine.lineNumber}: a table header cannot be marked with "|${ROW_START_MARKER}"`);
   }
 
-  const logicalRows = usesSeparators ? groupRowsBySeparator(bodyLines) : groupRowsByContinuationMarker(bodyLines);
+  const logicalRows = usesSeparators ? groupRowsBySeparator(bodyLines) : groupRowsByRowStartMarker(bodyLines);
 
   // Each logical row is emitted on its own first physical line, and every line it consumed — the
   // continuation lines and the separator rows alike — is blanked rather than removed, so the

@@ -86,11 +86,8 @@ describe('multiline table cell candidate syntaxes', () => {
     expect(readdirSync(FIXTURES_PATH).sort()).toStrictEqual([
       '00-baseline.feature',
       'a-plus-starts-row.feature',
-      'b-plus-continues-row.feature',
       'c-separator-row.feature',
-      'd-marker-column.feature',
       'e-trailing-plus-first-line.feature',
-      'f-trailing-plus-every-line.feature',
     ]);
   });
 
@@ -107,28 +104,16 @@ describe('multiline table cell candidate syntaxes', () => {
     const probe = probeFixture('a-plus-starts-row.feature');
 
     // The 2 uncoloured lines are exactly the ones opening a logical row, so they are the lines
-    // carrying that row's identifying values. Fewer lines lose their colour than in candidate B,
-    // but the ones that do are the ones a reader scans for.
+    // carrying that row's identifying values — the lines a reader scans for.
     expect(probe.tableLines).toBe(8);
     expect(probe.highlightedTableLines).toBe(6);
-    expect(probe.parseError).toContain('expected: #EOF, #TableRow, #StepLine, #TagLine, #ExamplesLine');
-  });
-
-  it('candidate B ("+" continues a row): only continuation lines lose their highlighting', () => {
-    const probe = probeFixture('b-plus-continues-row.feature');
-
-    // More lines lose their colour than in candidate A, because continuations outnumber row
-    // openers. The lines that keep it are the ones opening a logical row, and a table with no
-    // multiline cell keeps every line.
-    expect(probe.tableLines).toBe(8);
-    expect(probe.highlightedTableLines).toBe(3);
     expect(probe.parseError).toContain('expected: #EOF, #TableRow, #StepLine, #TagLine, #ExamplesLine');
   });
 
   it('candidate C (Markdown-style separator rows): fully highlighted, still stock Gherkin', () => {
     const probe = probeFixture('c-separator-row.feature');
 
-    expect(probe.tableLines).toBe(10);
+    expect(probe.tableLines).toBe(12);
     expect(probe.highlightedTableLines).toBe(probe.tableLines);
     expect(probe.unterminatedTableLines).toBe(0);
     expect(probe.parseError).toBeNull();
@@ -138,53 +123,18 @@ describe('multiline table cell candidate syntaxes', () => {
     expect(probe.stockRows[0].type).toBe('-------');
   });
 
-  it('candidate D (leading marker column): fully highlighted, still stock Gherkin', () => {
-    const probe = probeFixture('d-marker-column.feature');
-
-    expect(probe.tableLines).toBe(8);
-    expect(probe.highlightedTableLines).toBe(probe.tableLines);
-    expect(probe.unterminatedTableLines).toBe(0);
-    expect(probe.parseError).toBeNull();
-
-    // The marker column comes back as a real column, keyed on the empty header.
-    expect(Object.keys(probe.stockRows[0])).toStrictEqual(['', ...HEADER_COLUMNS]);
-    expect(probe.stockRows[0]['']).toBe('+');
-  });
-
-  it('candidate E (trailing "+" on the row\'s first line): invisible to stock Gherkin', () => {
+  it('candidate E (a trailing "+" opens a row): invisible to stock Gherkin', () => {
     const probe = probeFixture('e-trailing-plus-first-line.feature');
 
-    expect(probe.tableLines).toBe(8);
+    expect(probe.tableLines).toBe(9);
     expect(probe.highlightedTableLines).toBe(probe.tableLines);
 
-    // The 2 row-opening lines end on "+" rather than on a pipe, so each one's table region stays
-    // open until the following line closes it. Coloured, but spanning.
-    expect(probe.unterminatedTableLines).toBe(2);
+    // Every one of the 3 row-opening lines ends on "+" rather than on a pipe, so each one's table
+    // region stays open until the following line closes it. Coloured, but spanning.
+    expect(probe.unterminatedTableLines).toBe(3);
 
     // Gherkin drops everything after a row's final pipe, so the marker leaves no trace at all: the
     // columns are exactly the declared ones and no cell holds the "+".
-    expect(probe.parseError).toBeNull();
-    expect(Object.keys(probe.stockRows[0])).toStrictEqual(HEADER_COLUMNS);
-    expect(Object.values(probe.stockRows[0])).not.toContain('+');
-    expect(probe.stockRows[0]).toStrictEqual({
-      type: 'major',
-      name: 'Santé',
-      enrollment: 'LSpS 1',
-      split_by: 'semester',
-      schedule_segments: '[',
-    });
-  });
-
-  it('candidate F (trailing "+" on every continued line): invisible to stock Gherkin', () => {
-    const probe = probeFixture('f-trailing-plus-every-line.feature');
-
-    expect(probe.tableLines).toBe(8);
-    expect(probe.highlightedTableLines).toBe(probe.tableLines);
-
-    // Every line of a logical row but its last ends on "+", so a whole logical row renders as one
-    // contiguous table region rather than one region per line.
-    expect(probe.unterminatedTableLines).toBe(5);
-
     expect(probe.parseError).toBeNull();
     expect(Object.keys(probe.stockRows[0])).toStrictEqual(HEADER_COLUMNS);
     expect(Object.values(probe.stockRows[0])).not.toContain('+');
