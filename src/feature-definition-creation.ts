@@ -232,13 +232,22 @@ export const createDefineFeature = (): DefineFeatureFunction => {
   };
 
   const createDefineStepFunction = (scenarioFromStepDefinitions: ScenarioFromStepDefinitions) => {
-    return (stepMatcher: string | RegExp, stepFunction: (stepArguments?: unknown) => void | PromiseLike<never>) => {
+    const defineStepFunction = (
+      stepMatcher: string | RegExp,
+      stepFunction: (stepArguments?: unknown) => void | PromiseLike<never>,
+      options: { optional?: boolean } = {},
+    ) => {
       const stepDefinition: StepFromStepDefinitions = {
         stepMatcher,
         stepFunction,
+        options,
       };
 
       scenarioFromStepDefinitions.steps.push(stepDefinition);
+    };
+
+    defineStepFunction.optional = (...args: Parameters<typeof defineStepFunction>) => {
+      defineStepFunction(...args, { optional: true });
     };
   };
 

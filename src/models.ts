@@ -3,6 +3,7 @@ import { Options } from './configuration';
 export type StepFromStepDefinitions = {
   stepMatcher: string | RegExp;
   stepFunction(stepArguments?: unknown): void | PromiseLike<never>;
+  options: { optional?: boolean };
 };
 
 export type ScenarioFromStepDefinitions = {
